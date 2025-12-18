@@ -51,7 +51,7 @@ public class ProductService {
                 product.stockLevel()
         );
         productRepository.save(newProduct);
-        return null;
+        return id;
     }
 
     Function<Product, ProductResponse> mapToResponse() {
