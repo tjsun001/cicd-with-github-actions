@@ -16,4 +16,4 @@
             distribution: 'temurin'
             java-version: '21'
         - name: Maven Clean Verify
-          run: mvn clean verify
+          run: mvn -ntp clean verify
