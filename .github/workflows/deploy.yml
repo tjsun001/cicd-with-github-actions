@@ -3,101 +3,25 @@ on:
   push:
     branches:
       - main
-  workflow_dispatch:
-    inputs:
-      build_number:
-        description: "The build number to deploy (optional)"
-        required: false
-        type: string
+  pull_request:
+    branches:
+      - main
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-    env:
-      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-      DOCKER_IMAGE_NAME: product-service
-      DOCKER_COMPOSE_APP_SERVICE_NAME: product-service
-      DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
-      EC2_SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
-      EC2_PUBLIC_IP_ADDRESS: ${{ secrets.EC2_PUBLIC_IP_ADDRESS }}
-      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-
     steps:
       - name: Checkout
-        if: ${{ github.event.inputs.build_number == '' }}
         uses: actions/checkout@v4
-      - name: Send slack message with github commit url
-        run: >
-          curl -X POST -H 'Content-type: application/json'
-          --data '{"text":":rocket: Deployment started for commit: ${{ github.event.head_commit.message }} - https://github.com/${{ github.repository }}/commit/${{ github.sha }}"}' 
-          ${{ env.SLACK_WEBHOOK_URL }}
       - name: JDK
-        if: ${{ github.event.inputs.build_number == '' }}
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '21'
       - name: Generate Build Number
         run: |
-          if [ -n "${{ github.event.inputs.build_number }}" ]; then
-            BUILD_NUMBER=${{ github.event.inputs.build_number }}
-            echo "using provided build number: $BUILD_NUMBER"
-            curl -X POST -H 'Content-type: application/json' --data "{\"text\":\":package: Using provided build number: $BUILD_NUMBER\"}" ${{ env.SLACK_WEBHOOK_URL }}
-          else
-            BUILD_NUMBER=$(date +'%d%m%Y%H%M%S')
-            echo "using generated build number: $BUILD_NUMBER"
-            curl -X POST -H 'Content-type: application/json' --data "{\"text\":\":gear: Generated new build number: $BUILD_NUMBER\"}" ${{ env.SLACK_WEBHOOK_URL }}
-          fi
+          BUILD_NUMBER=$(date +'%d%m%Y%H%M%S')
           echo "BUILD_NUMBER=$BUILD_NUMBER" >> $GITHUB_ENV
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ env.DOCKER_USERNAME }}
-          password: ${{ env.DOCKER_PASSWORD }}
-      - name: Check if provided docker image exists
-        if: ${{ github.event.inputs.build_number != '' }}
-        run: |
-          IMAGE="${{ env.DOCKER_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:$BUILD_NUMBER"
-          echo "checking if $IMAGE exists"
-          if ! docker manifest inspect "$IMAGE" > /dev/null 2>&1; then
-            echo "provided image $IMAGE does not exist. exiting..."
-            curl -X POST -H 'Content-type: application/json' --data "{\"text\":\":x: :warning: Provided image $IMAGE does not exist! Exiting deployment...\"}" ${{ env.SLACK_WEBHOOK_URL }}
-            exit 1
-          fi
-          echo "provided image $IMAGE exists ✅"
-          curl -X POST -H 'Content-type: application/json' --data "{\"text\":\":white_check_mark: Image $IMAGE exists and ready for deployment\"}" ${{ env.SLACK_WEBHOOK_URL }}
-          echo "IMAGE=$IMAGE" >> $GITHUB_ENV
-
+          echo "Generated Build Number: $BUILD_NUMBER"
       - name: Maven Clean Verify
-        if: ${{ github.event.inputs.build_number == '' }}
-        run: |
-          curl -X POST -H 'Content-type: application/json' --data "{\"text\":\":hammer_and_wrench: Building and deploying to Docker Hub...\"}" ${{ env.SLACK_WEBHOOK_URL }}
-          mvn -B -ntp clean verify jib:build -Ddocker.image.tag=$BUILD_NUMBER
-          curl -X POST -H 'Content-type: application/json' --data "{\"text\":\":white_check_mark: Successfully built and pushed to Docker Hub\"}" ${{ env.SLACK_WEBHOOK_URL }}
-      - name: Setup SSH Agent
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ env.EC2_SSH_PRIVATE_KEY }}
-      - name: SSH To EC2 and Deploy
-        run: |
-          curl -X POST -H 'Content-type: application/json' --data '{"text":":cloud: Deploying to AWS EC2..."}' ${{ env.SLACK_WEBHOOK_URL }}
-          ssh -o StrictHostKeyChecking=no ec2-user@$EC2_PUBLIC_IP_ADDRESS << EOF
-            cd ~
-            sed -i 's|image: '"$DOCKER_USERNAME"'/'"$DOCKER_IMAGE_NAME"':.*$|image: '"$DOCKER_USERNAME"'/'"$DOCKER_IMAGE_NAME"':'"$BUILD_NUMBER"'|' docker-compose.yml
-            docker-compose pull
-            docker-compose up -d '$DOCKER_COMPOSE_APP_SERVICE_NAME'
-            docker image prune -f
-            docker ps
-            echo "$BUILD_NUMBER" > build-number.txt
-          EOF
-          curl -X POST -H 'Content-type: application/json' --data "{\"text\":\":tada: Successfully deployed to AWS EC2\"}" ${{ env.SLACK_WEBHOOK_URL }}
-      - name: Send slack message with status
-        if: always()
-        run: |
-          if [ "${{ job.status }}" == "success" ]; then
-            EMOJI=":tada:"
-            MESSAGE="Deployment completed successfully!"
-          else
-            EMOJI=":x:"
-            MESSAGE="Deployment failed!"
-          fi
-          curl -X POST -H 'Content-type: application/json' --data "{\"text\":\"$EMOJI $MESSAGE - Job status: ${{ job.status }}\"}" ${{ env.SLACK_WEBHOOK_URL }}
+        run: mvn -B -ntp clean verify jib:build\
+          -Ddocker.image.tag=$BUILD_NUMBER
