@@ -12,6 +12,8 @@ jobs:
     env:
       DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
       DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+      DOCKER_IMAGE_NAME: produce-service
+      DOCKER_COMPOSE_APP_SERVICE_NAME: produce-service
       EC2_SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
       EC2_PUBLIC_IP_ADDRESS: ${{ secrets.EC2_PUBLIC_IP_ADDRESS }}
     steps:
@@ -43,5 +45,11 @@ jobs:
           ssh -o StrictHostKeyChecking=no ubuntu@$EC2_PUBLIC_IP_ADDRESS  "whoami"<< EOF
             ls
             pwd
-            echo " Testing My code" > hello.txt
+            cd ~
+            sed -i 's|image: '"$DOCKER_USERNAME"'/'"$DOCKER_IMAGE_NAME"':.*$|image: '"$DOCKER_USERNAME"'/'"$DOCKER_IMAGE_NAME"':'"$BUILD_NUMBER"'|' docker-compose.yml
+            docker-compose  pull
+            docker-compose  up -d '"$DOCKER_COMPOSE_APP_SERVICE_NAME"'
+            docker image prune -f
+            docker ps
+            echo "BUILD_NUMBER" > build-number.txt
           EOF
