@@ -40,7 +40,7 @@ jobs:
               ssh-private-key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
       - name: SSH_TO_EC2_and_Deploy
         run : |
-          ssh -o StrictHostKeyChecking=no ubuntu@$EC2_PUBLIC_IP_ADDRESS << EOF
+          ssh -o StrictHostKeyChecking=no ec2-user@$EC2_PUBLIC_IP_ADDRESS << EOF
             ls
             pwd
             echo " Testing My code" > hello.txt
