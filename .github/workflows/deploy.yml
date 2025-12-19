@@ -54,4 +54,4 @@ jobs:
 #            docker ps
             echo "BUILD_NUMBER" > build-number.txt
             echo "ending here"
-          EOF
+#          EOF
