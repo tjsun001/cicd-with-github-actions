@@ -55,7 +55,11 @@ jobs:
             pwd
             export APP_IMAGE="${DOCKER_USERNAME}/${DOCKER_IMAGE_NAME}:${BUILD_NUMBER}"
             echo $APP_IMAGE
-            cd /home/ubuntu/my-app 
+            cd /home/ubuntu/
+            cd /home/ubuntu 
+            git clone https://github.com/yourusername/yourrepo.git my-app
+            cd my-app
+            ls
             docker compose  pull
             docker compose  up -d $DOCKER_COMPOSE_APP_SERVICE_NAME
             docker image prune -f
