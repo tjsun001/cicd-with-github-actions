@@ -12,8 +12,8 @@ jobs:
     env:
       DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
       DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
-      DOCKER_IMAGE_NAME: produce-service
-      DOCKER_COMPOSE_APP_SERVICE_NAME: produce-service
+      DOCKER_IMAGE_NAME: product-service
+      DOCKER_COMPOSE_APP_SERVICE_NAME: product-service
       EC2_SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
       EC2_PUBLIC_IP_ADDRESS: ${{ secrets.EC2_PUBLIC_IP_ADDRESS }}
     steps:
