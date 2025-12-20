@@ -43,8 +43,8 @@ jobs:
       - name: SSH_TO_EC2_and_Deploy
         run : |
           ssh -o StrictHostKeyChecking=no ubuntu@$EC2_PUBLIC_IP_ADDRESS 
+          echo $BUILD_NUMBER
             ls
             pwd
             sed -i 's|image: '"$DOCKER_USERNAME"'/'"$DOCKER_IMAGE_NAME"':.*$|image: '"$DOCKER_USERNAME"'/'"$DOCKER_IMAGE_NAME"':'"$BUILD_NUMBER"'|' docker-compose.yml
             docker compose  pull
-          EOF
