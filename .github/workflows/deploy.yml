@@ -47,4 +47,5 @@ jobs:
             ls
             pwd
             sed -i 's|image: '"$DOCKER_USERNAME"'/'"$DOCKER_IMAGE_NAME"':.*$|image: '"$DOCKER_USERNAME"'/'"$DOCKER_IMAGE_NAME"':'"$BUILD_NUMBER"'|' docker-compose.yml
-            docker compose  pull
+            grep image: docker-compose.yml
+
