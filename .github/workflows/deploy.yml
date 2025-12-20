@@ -44,7 +44,8 @@ jobs:
         run : |
           ssh -o StrictHostKeyChecking=no ubuntu@$EC2_PUBLIC_IP_ADDRESS 
           echo "start here"
-            ls
+            ls -la
             pwd
             cd ~
+            ls -la
           echo "end here"
