@@ -54,7 +54,7 @@ jobs:
           echo $DOCKER_COMPOSE_APP_SERVICE_NAME
             ls
             pwd
-            export APP_IMAGE="tjsun0001/product-service:latest"
+            export APP_IMAGE="$DOCKER_USERNAME/$DOCKER_COMPOSE_APP_SERVICE_NAME:latest"
             sudo docker compose  pull
             sudo docker compose  up -d 
             sudo docker image prune -f
