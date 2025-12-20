@@ -4,7 +4,7 @@ services:
   product-service:
       container_name: product
 
-      image: tjsun0001/product-service:latest
+      image: ${DOCKER_IMAGE}
       build:
         context: .
         dockerfile: Dockerfile
