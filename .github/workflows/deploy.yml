@@ -46,7 +46,7 @@ jobs:
           echo $BUILD_NUMBER
           echo $DOCKER_USERNAME
           echo $DOCKER_PASSWORD
-          echo $$DOCKER_COMPOSE_APP_SERVICE_NAME
+          echo $DOCKER_COMPOSE_APP_SERVICE_NAME
           
             ls
             pwd
@@ -54,7 +54,7 @@ jobs:
             export APP_IMAGE="${DOCKER_USERNAME}/${DOCKER_IMAGE_NAME}:${BUILD_NUMBER}"
             echo $APP_IMAGE
             docker compose  pull
-            docker compose  up -d '$DOCKER_COMPOSE_APP_SERVICE_NAME"'
+            docker compose  up -d $DOCKER_COMPOSE_APP_SERVICE_NAME
             docker image prune -f
             docker ps
             echo "BUILD_NUMBER" > build-number.txt
