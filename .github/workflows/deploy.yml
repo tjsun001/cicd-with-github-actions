@@ -47,10 +47,8 @@ jobs:
           echo $DOCKER_USERNAME
           echo $DOCKER_PASSWORD
           echo $DOCKER_COMPOSE_APP_SERVICE_NAME
-          
             ls
             pwd
-            sed -i 's|image: '"$DOCKER_USERNAME"'/'"$DOCKER_IMAGE_NAME"':.*$|image: '"$DOCKER_USERNAME"'/'"$DOCKER_IMAGE_NAME"':'"$BUILD_NUMBER"'|' docker-compose.yml
             export APP_IMAGE="${DOCKER_USERNAME}/${DOCKER_IMAGE_NAME}:${BUILD_NUMBER}"
             echo $APP_IMAGE
             docker compose  pull
