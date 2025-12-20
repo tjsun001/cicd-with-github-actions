@@ -35,7 +35,9 @@ jobs:
           username: ${{ env.DOCKER_USERNAME }}
           password: ${{ env.DOCKER_PASSWORD }}
       - name: Build and push Docker image
-        run: mvn -B -ntp clean package -DskipTests -DskipITs && mvn -B -ntp jib:build -Ddocker.image.tag=$BUILD_NUMBER
+        run: |
+          mvn -B -ntp clean package -DskipTests -DskipITs
+          mvn -B -ntp jib:build -Ddocker.image.tag=$BUILD_NUMBER -Djib.skipTests=true
       - name : Setup SSH Agent
         uses: webfactory/ssh-agent@v0.9.0
         with:
