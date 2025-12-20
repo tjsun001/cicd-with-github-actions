@@ -20,8 +20,8 @@ services:
     container_name: jfs-postgres
     image: postgres
     environment:
-      POSTGRES_USER: myuser
-      POSTGRES_PASSWORD: password
+      POSTGRES_USER: ${PG_USER}
+      POSTGRES_PASSWORD: ${PG_PASSWORD}
       POSTGRES_DB: jfs
     ports:
       - "5333:5432"
