@@ -45,7 +45,6 @@ jobs:
         run : |
           mvn -B -ntp clean package jib:build \
           -Dimage=tjsun0001/product-service:latest
-#          -Dimage=${{ secrets.DOCKER_USERNAME }}/$DOCKER_IMAGE_NAME:$BUILD_NUMBER
           ssh -o StrictHostKeyChecking=no ubuntu@44.206.28.191 << 'EOF'
           echo "Inside EC2"
           cd /home/ubuntu
