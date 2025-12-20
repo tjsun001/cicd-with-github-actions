@@ -10,17 +10,17 @@ services:
         dockerfile: Dockerfile
       environment:
         SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/jfs
-        SPRING_DATASOURCE_USERNAME: amigoscode
+        SPRING_DATASOURCE_USERNAME: myuser
         SPRING_DATASOURCE_PASSWORD: password
       ports:
-        - "8090:8080"
+        - "5050:8080"
       networks:
         - amigos
   db:
     container_name: jfs-postgres
     image: postgres
     environment:
-      POSTGRES_USER: amigoscode
+      POSTGRES_USER: myuser
       POSTGRES_PASSWORD: password
       POSTGRES_DB: jfs
     ports:
