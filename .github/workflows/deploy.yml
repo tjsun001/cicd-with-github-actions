@@ -47,6 +47,7 @@ jobs:
           -Dimage=${{ secrets.DOCKER_USERNAME }}/$DOCKER_IMAGE_NAME:$BUILD_NUMBER
           ssh -o StrictHostKeyChecking=no ubuntu@44.206.28.191 << 'EOF'
           echo "Inside EC2"
+          cd /home/ubuntu
           echo $BUILD_NUMBER
           echo $DOCKER_USERNAME
           echo $DOCKER_PASSWORD
@@ -54,14 +55,8 @@ jobs:
             ls
             pwd
             export APP_IMAGE="${DOCKER_USERNAME}/${DOCKER_IMAGE_NAME}:${BUILD_NUMBER}"
-            echo $APP_IMAGE
-            cd /home/ubuntu/
-            cd /home/ubuntu 
-            git clone https://github.com/tjsun0001/product-service.git my-app
-            cd my-app
-            ls
             docker compose  pull
-            docker compose  up -d $DOCKER_COMPOSE_APP_SERVICE_NAME
+            docker compose  up -d product-service
             docker image prune -f
             docker ps
             echo "BUILD_NUMBER" > build-number.txt
