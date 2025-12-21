@@ -53,9 +53,9 @@ jobs:
           username: ${{ env.DOCKER_USERNAME }}
           password: ${{ env.DOCKER_PASSWORD }}
       - name: Check if provided image exists
-        if: ${{ github.event.inputs.build.number  != ''}}
+        if: ${{ github.event.inputs.build.number  != '' }}
         run: |
-          IMAGE_NAME="${{env.DOCKER_USERNAME}}/${{env.DOCKER_IMAGE_NAME}}:$BUILD_NUMBER}}"
+          IMAGE_NAME="${{ env.DOCKER_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:$BUILD_NUMBER"
           echo "checking if $IMAGE_NAME exists"
           if ! docker manifest inspect "$IMAGE_NAME" > /dev/null 2>&1; then
             echo "provided image $IMAGE_NAME does not exist. exiting ..."
@@ -69,6 +69,7 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
       - name: SSH_TO_EC2_and_Deploy
+        if: ${{ github.event.inputs.build.number  == '' }}
         run : |
           mvn -B -ntp clean package jib:build \
           -Dimage=${DOCKER_USERNAME}/${DOCKER_IMAGE_NAME}:${BUILD_NUMBER}
