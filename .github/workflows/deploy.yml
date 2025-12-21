@@ -57,22 +57,22 @@ jobs:
         run: |
           IMAGE_NAME="${{ env.DOCKER_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:$BUILD_NUMBER"
           echo "checking if $IMAGE_NAME exists"
-          if !docker manifest inspect "$IMAGE_NAME" > /dev/null 2>&1; then
+          if ! docker manifest inspect "$IMAGE_NAME" > /dev/null 2>&1; then
             echo "provided image $IMAGE_NAME does not exist. exiting ..."
             exit 1
           fi
           echo "provided image $IMAGE_NAME exists. ✅exiting..."
-      - name: Build Maven artifact without tests
+      - name: Maven Clean Verify
+        if: ${{ github.event.inputs.build.number  == '' }}
         run: |
+          mvn -B -ntp clean package jib:build \
+                   -Dimage=${DOCKER_USERNAME}/${DOCKER_IMAGE_NAME}:${BUILD_NUMBER}
       - name : Setup SSH Agent
         uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
       - name: SSH_TO_EC2_and_Deploy
-        if: ${{ github.event.inputs.build.number  == '' }}
         run : |
-          mvn -B -ntp clean package jib:build \
-          -Dimage=${DOCKER_USERNAME}/${DOCKER_IMAGE_NAME}:${BUILD_NUMBER}
           ssh -o StrictHostKeyChecking=no $EC2_PUBLIC_IP_ADDRESS << EOF
           echo "Inside EC2"
           cd /home/ubuntu
