@@ -63,10 +63,10 @@ jobs:
           fi
           echo "provided image $IMAGE_NAME exists. ✅exiting..."
       - name: Maven Clean Verify
-        if: ${{ github.event.inputs.build.number  == '' }}
+        if: ${{ github.event.inputs.build_number  == '' }}
         run: |
           mvn -B -ntp clean package jib:build \
-                   -Dimage=${DOCKER_USERNAME}/${DOCKER_IMAGE_NAME}:${BUILD_NUMBER}
+              -Dimage=${DOCKER_USERNAME}/${DOCKER_IMAGE_NAME}:${BUILD_NUMBER}
       - name : Setup SSH Agent
         uses: webfactory/ssh-agent@v0.9.0
         with:
