@@ -22,7 +22,7 @@ public class Main {
             ProductRepository productRepository) {
         return args -> {
             Product product1 = new Product();
-            product1.setName("Macbook Pro");
+            product1.setName("MacbookPro");
             product1.setDescription("Macbook Pro M4");
             product1.setPrice(new BigDecimal(3000));
             product1.setId(UUID.fromString(
