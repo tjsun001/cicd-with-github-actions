@@ -17,5 +17,12 @@ public class InferenceController {
     public Object recommendations(@PathVariable int userId) {
         return inferenceClient.predict(userId);
     }
+
+    @GetMapping("/inference/health")
+    public Object inferenceHealth() {
+        return inferenceClient.health();
+    }
 }
+
+
 

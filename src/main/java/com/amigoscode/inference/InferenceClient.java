@@ -26,5 +26,12 @@ public class InferenceClient {
                 .retrieve()
                 .body(Object.class);
     }
+    public Object health() {
+        return restClient.get()
+                .uri("/health")
+                .retrieve()
+                .body(Object.class);
+    }
+
 }
 
