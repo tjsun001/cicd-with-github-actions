@@ -21,7 +21,7 @@ public class RecommendationsController {
     @GetMapping(value = "/recommendations/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<Map<String, Object>> recommendations(@PathVariable long id)
     {
-        Map<String, Object> payload = Map.of("user_id", id);
+        Map<String, Object> payload = Map.of("product_id", id);
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
