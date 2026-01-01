@@ -1,6 +1,7 @@
 package com.amigoscode.recommendations;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.RestTemplate;
@@ -18,7 +19,8 @@ public class RecommendationsController {
     }
 
     @GetMapping(value = "/recommendations/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<Object> recommendations(@PathVariable long id) {
+    public ResponseEntity<Map<String, Object>> recommendations(@PathVariable long id)
+    {
         Map<String, Object> payload = Map.of("user_id", id);
 
         HttpHeaders headers = new HttpHeaders();
@@ -26,14 +28,17 @@ public class RecommendationsController {
 
         HttpEntity<Map<String, Object>> entity = new HttpEntity<>(payload, headers);
 
-        ResponseEntity<Object> resp = restTemplate.exchange(
+        ResponseEntity<Map<String, Object>> resp = restTemplate.exchange(
                 inferenceBaseUrl + "/predict",
                 HttpMethod.POST,
                 entity,
-                Object.class
+                new ParameterizedTypeReference<Map<String, Object>>() {}
         );
 
-        return ResponseEntity.status(resp.getStatusCode()).body(resp.getBody());
-    }
+
+        return ResponseEntity
+                .status(resp.getStatusCode())
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(resp.getBody());}
 
 }
