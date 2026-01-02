@@ -32,3 +32,161 @@ jobs:
       POSTGRES_DB: jfs
       AWS_REGION: us-east-1
       MODEL_HOST_PATH: /home/ubuntu/my-mlops-demo/models/model.pkl
+      PRODUCT_HOST_PORT: "5050"
+      POSTGRES_HOST_PORT: "5333"
+
+    steps:
+      - name: Slack - start
+        if: always()
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+            --data "{\"text\":\"Deploy started: ${GITHUB_SHA} (${GITHUB_REF_NAME})\"}" \
+            "${SLACK_WEBHOOK_URL}"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Choose deploy tag
+        id: tags
+        run: |
+          # Default: immutable sha tag for this commit
+          SHA_TAG="sha-${GITHUB_SHA}"
+          # Optional moving tag for main
+          if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+            MOVING_TAG="prod"
+          else
+            MOVING_TAG=""
+          fi
+
+          # If user provided a tag manually, deploy that.
+          if [ -n "${{ github.event.inputs.image_tag }}" ]; then
+            DEPLOY_TAG="${{ github.event.inputs.image_tag }}"
+          else
+            DEPLOY_TAG="${SHA_TAG}"
+          fi
+
+          echo "SHA_TAG=${SHA_TAG}" >> "$GITHUB_OUTPUT"
+          echo "MOVING_TAG=${MOVING_TAG}" >> "$GITHUB_OUTPUT"
+          echo "DEPLOY_TAG=${DEPLOY_TAG}" >> "$GITHUB_OUTPUT"
+
+          echo "Will deploy tag: ${DEPLOY_TAG}"
+          echo "Also apply moving tag (if set): ${MOVING_TAG}"
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DOCKER_USERNAME }}
+          password: ${{ env.DOCKER_PASSWORD }}
+
+      # ---------- Build & push PRODUCT image via Jib ----------
+      - name: Setup JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Build & push product-service (Jib)
+        run: |
+          PRODUCT_REPO="${DOCKER_USERNAME}/${DOCKER_IMAGE_NAME_PRODUCT}"
+          SHA_TAG="${{ steps.tags.outputs.SHA_TAG }}"
+          MOVING_TAG="${{ steps.tags.outputs.MOVING_TAG }}"
+
+          EXTRA_TAGS="${SHA_TAG}"
+          if [ -n "${MOVING_TAG}" ]; then
+            EXTRA_TAGS="${EXTRA_TAGS},${MOVING_TAG}"
+          fi
+
+          mvn -B -ntp clean package jib:build \
+            -Dimage="${PRODUCT_REPO}:${SHA_TAG}" \
+            -Djib.to.tags="${EXTRA_TAGS}"
+
+      # ---------- Build & push INFERENCE image via Dockerfile ----------
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & push inference-service (Dockerfile)
+        run: |
+          INFER_REPO="${DOCKER_USERNAME}/${DOCKER_IMAGE_NAME_INFERENCE}"
+          SHA_TAG="${{ steps.tags.outputs.SHA_TAG }}"
+          MOVING_TAG="${{ steps.tags.outputs.MOVING_TAG }}"
+
+          docker build -t "${INFER_REPO}:${SHA_TAG}" -f api/Dockerfile api
+
+          docker push "${INFER_REPO}:${SHA_TAG}"
+
+          if [ -n "${MOVING_TAG}" ]; then
+            docker tag "${INFER_REPO}:${SHA_TAG}" "${INFER_REPO}:${MOVING_TAG}"
+            docker push "${INFER_REPO}:${MOVING_TAG}"
+          fi
+
+      # ---------- Deploy to EC2 using compose layering ----------
+      - name: Setup SSH Agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ env.EC2_SSH_PRIVATE_KEY }}
+
+      - name: Deploy on EC2 (compose pull + up)
+        run: |
+          DEPLOY_TAG="${{ steps.tags.outputs.DEPLOY_TAG }}"
+          PRODUCT_IMAGE="${DOCKER_USERNAME}/${DOCKER_IMAGE_NAME_PRODUCT}:${DEPLOY_TAG}"
+          INFERENCE_IMAGE="${DOCKER_USERNAME}/${DOCKER_IMAGE_NAME_INFERENCE}:${DEPLOY_TAG}"
+
+          ssh -o StrictHostKeyChecking=no "ubuntu@${EC2_PUBLIC_IP_ADDRESS}" 'bash -s' << EOF
+          set -euo pipefail
+
+          cd /home/ubuntu/my-mlops-demo
+
+          # Write deploy-time env (do NOT commit this file)
+          cat > .env <<ENV
+          PRODUCT_IMAGE=${PRODUCT_IMAGE}
+          INFERENCE_IMAGE=${INFERENCE_IMAGE}
+
+          PRODUCT_HOST_PORT=${PRODUCT_HOST_PORT}
+          POSTGRES_HOST_PORT=${POSTGRES_HOST_PORT}
+
+          POSTGRES_USER=${POSTGRES_USER}
+          POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+          POSTGRES_DB=${POSTGRES_DB}
+
+          AWS_REGION=${AWS_REGION}
+          MODEL_HOST_PATH=${MODEL_HOST_PATH}
+          ENV
+
+          echo "${DEPLOY_TAG}" > deployed-image-tag.txt
+
+          # Pull & run (full stack)
+          docker compose -f docker-compose.yml -f docker-compose.ec2.yml pull
+          docker compose -f docker-compose.yml -f docker-compose.ec2.yml up -d --remove-orphans
+
+          docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}"
+          EOF
+
+      # ---------- Post-deploy smoke tests ----------
+      - name: Smoke test /ready + /health
+        run: |
+          EC2="http://${{ env.EC2_PUBLIC_IP_ADDRESS }}:${{ env.PRODUCT_HOST_PORT }}"
+
+          echo "Waiting for service to become ready..."
+          for i in {1..30}; do
+            if curl -fsS "${EC2}/api/inference/ready" >/dev/null 2>&1; then
+              echo "Inference ready ✅"
+              break
+            fi
+            sleep 2
+          done
+
+          # Fail if not ready
+          curl -fsS "${EC2}/api/inference/ready" >/dev/null
+
+          echo "Health output:"
+          curl -fsS "${EC2}/api/inference/health" | tee /tmp/health.json
+
+          # Optional: basic assertion your hash exists
+          grep -q "model_sha256" /tmp/health.json
+
+      - name: Slack - end
+        if: always()
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+            --data "{\"text\":\"Deploy finished: status=${{ job.status }} commit=${GITHUB_SHA}\"}" \
+            "${SLACK_WEBHOOK_URL}"
