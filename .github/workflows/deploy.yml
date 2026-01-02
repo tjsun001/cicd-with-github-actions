@@ -16,36 +16,19 @@ jobs:
     timeout-minutes: 30
 
     env:
-      # Adjust if your EC2 AMI uses a different SSH username
       EC2_USER: ubuntu
-
-      # Public app health check (host port exposed on EC2)
       APP_PORT: "5050"
       HEALTH_PATH: "/api/inference/health"
 
-      # Versioning
       BUILD_NUMBER: ${{ github.run_number }}
       DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
 
-      # Image name for this repo
       IMAGE_NAME: mlops-recommendation-backend
-
-      # Remote compose project path on EC2 (adjust if needed)
       REMOTE_APP_DIR: /home/ubuntu/my-mlops-demo/my-mlops-demo
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      # ---- (Optional) Debug tree (remove once stable) ----
-      - name: Debug repo tree
-        shell: bash
-        run: |
-          set -euo pipefail
-          pwd
-          ls -lah
-          echo "---- Dockerfiles ----"
-          find . -maxdepth 4 -type f -iname "Dockerfile" -print
 
       # ---- Build & push Docker image (root Dockerfile) ----
       - name: Set up Docker Buildx
@@ -57,7 +40,7 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Build & push backend image (Dockerfile at repo root)
+      - name: Build & push backend image
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -67,24 +50,30 @@ jobs:
             ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ github.run_number }}
             ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:latest
 
-      # ---- SSH (robust key write + known_hosts + sanity check) ----
+      # ---- SSH (ROBUST + CORRECT SECRET NAME) ----
       - name: Setup SSH + known_hosts (robust)
         shell: bash
         run: |
           set -euo pipefail
 
+          if [[ -z "${{ secrets.EC2_SSH_PRIVATE_KEY }}" ]]; then
+            echo "ERROR: EC2_SSH_PRIVATE_KEY secret is missing or empty"
+            exit 1
+          fi
+
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
 
-          # Write key exactly, normalize CRLF, and FORCE a trailing newline
-          # (missing trailing newline can cause "error in libcrypto")
-          { printf '%s' "${{ secrets.EC2_SSH_KEY }}"; printf '\n'; } | tr -d '\r' > ~/.ssh/id_ed25519
+          # Write key, normalize CRLF, force trailing newline
+          { printf '%s' "${{ secrets.EC2_SSH_PRIVATE_KEY }}"; printf '\n'; } \
+            | tr -d '\r' > ~/.ssh/id_ed25519
+
           chmod 600 ~/.ssh/id_ed25519
 
-          # Validate key parses (fails fast without printing key material)
+          # Validate key parses
           ssh-keygen -y -f ~/.ssh/id_ed25519 >/dev/null
 
-          # Add host key to avoid interactive prompt
+          # Add EC2 host key
           ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
 
       - name: SSH sanity check (verbose)
@@ -97,7 +86,7 @@ jobs:
             "${{ env.EC2_USER }}@${{ secrets.EC2_HOST }}" \
             "echo CONNECTED && whoami && hostname && pwd"
 
-      # ---- Deploy on EC2 (compose pull + up) ----
+      # ---- Deploy on EC2 ----
       - name: Deploy on EC2 (compose pull + up)
         shell: bash
         env:
@@ -108,13 +97,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          # IMPORTANT: do NOT single-quote EOF, so variables expand on the runner
-          ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes "${{ env.EC2_USER }}@${{ secrets.EC2_HOST }}" << EOF
+          ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes \
+            "${{ env.EC2_USER }}@${{ secrets.EC2_HOST }}" << EOF
             set -euo pipefail
 
             cd "${REMOTE_APP_DIR}"
 
-            # Pass runner vars into the remote environment for docker compose variable substitution
             export DOCKER_USERNAME="${DOCKER_USERNAME}"
             export BUILD_NUMBER="${BUILD_NUMBER}"
             export IMAGE_NAME="${IMAGE_NAME}"
@@ -124,7 +112,7 @@ jobs:
             docker compose ps
           EOF
 
-      # ---- Smoke test / health ----
+      # ---- Smoke test ----
       - name: Smoke test (health)
         shell: bash
         run: |
