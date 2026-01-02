@@ -23,101 +23,23 @@ jobs:
       APP_PORT: "5050"
       HEALTH_PATH: "/api/inference/health"
 
-      # Common tagging/versioning
+      # Versioning
       BUILD_NUMBER: ${{ github.run_number }}
       DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+
+      # Image name for this repo (change if you prefer a different name)
+      IMAGE_NAME: mlops-recommendation-backend
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ---- Build & push inference-service ----
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-
-      - name: Build & push inference-service (Dockerfile)
-        uses: docker/build-push-action@v6
-        with:
-          context: ./api
-          file: ./api/Dockerfile
-          push: true
-          tags: |
-            ${{ secrets.DOCKER_USERNAME }}/inference-service:${{ github.run_number }}
-            ${{ secrets.DOCKER_USERNAME }}/inference-service:latest
-
-      # ---- SSH (deterministic known_hosts + sanity check) ----
-      - name: Setup SSH + known_hosts
+      # ---- (Optional) Debug tree (remove once stable) ----
+      - name: Debug repo tree
         shell: bash
         run: |
           set -euo pipefail
-
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-
-          # Write private key from secrets
-          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-
-          # Add host key to avoid interactive prompt
-          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
-
-      - name: SSH sanity check (verbose)
-        shell: bash
-        run: |
-          set -euo pipefail
-          ssh -vvv -i ~/.ssh/id_ed25519 \
-            -o IdentitiesOnly=yes \
-            -o StrictHostKeyChecking=yes \
-            "${{ env.EC2_USER }}@${{ secrets.EC2_HOST }}" \
-            "echo CONNECTED && whoami && hostname && pwd"
-
-      # ---- Deploy on EC2 (compose pull + up) ----
-      - name: Deploy on EC2 (compose pull + up)
-        shell: bash
-        env:
-          # Make absolutely sure these exist in the step environment
-          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-          BUILD_NUMBER: ${{ github.run_number }}
-        run: |
-          set -euo pipefail
-
-          # IMPORTANT: do NOT single-quote EOF, so variables expand on the runner
-          ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes "${{ env.EC2_USER }}@${{ secrets.EC2_HOST }}" << EOF
-            set -euo pipefail
-
-            cd /home/ubuntu/my-mlops-demo/my-mlops-demo
-
-            # Pass runner vars into the remote environment
-            export DOCKER_USERNAME="${DOCKER_USERNAME}"
-            export BUILD_NUMBER="${BUILD_NUMBER}"
-
-            docker compose pull
-            docker compose up -d --remove-orphans
-            docker compose ps
-          EOF
-
-      # ---- Smoke test / health ----
-      - name: Smoke test (health)
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "Checking: http://${{ secrets.EC2_HOST }}:${{ env.APP_PORT }}${{ env.HEALTH_PATH }}"
-          curl -fsS "http://${{ secrets.EC2_HOST }}:${{ env.APP_PORT }}${{ env.HEALTH_PATH }}"
-
-      # ---- Slack notification (optional) ----
-      - name: Slack - end
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          STATUS="${{ job.status }}"
-          TEXT="build-and-deploy: *${STATUS}* for \`${{ github.repository }}\` @ \`${{ github.ref_name }}\` (run #${{ github.run_number }})"
-          curl -X POST -H 'Content-type: application/json' \
-            --data "$(printf '{"text":"%s"}' "$TEXT")" \
-            "${{ secrets.SLACK_WEBHOOK_URL }}"
+          pwd
+          ls -lah
+          echo "---- Dockerfiles ----"
+          fi
