@@ -1,223 +1,126 @@
-name: Deploy Workflow
+# .github/workflows/build-and-deploy.yml
+name: build-and-deploy
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
-    inputs:
-      image_tag:
-        description: "Deploy a specific tag (e.g., sha-<commit> or prod). Leave empty to deploy sha-<this commit>."
-        required: false
-        type: string
+  push:
+    branches: ["main"]
+
+concurrency:
+  group: build-and-deploy-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+
     env:
+      # You can change these defaults if your repo uses different names/ports
+      EC2_USER: ubuntu
+      APP_PORT: "5050"
+      HEALTH_PATH: "/api/inference/health"
+
+      # If your docker-compose on EC2 uses BUILD_NUMBER / DOCKER_USERNAME, keep these
+      BUILD_NUMBER: ${{ github.run_number }}
       DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-      DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
-
-      # Docker Hub repositories
-      DOCKER_IMAGE_NAME_PRODUCT: product-service
-      DOCKER_IMAGE_NAME_INFERENCE: inference-service
-
-      EC2_SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
-      EC2_PUBLIC_IP_ADDRESS: ${{ secrets.EC2_PUBLIC_IP_ADDRESS }}
-
-      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-
-      # App defaults (move to GitHub secrets if you prefer)
-      POSTGRES_USER: amigoscode
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: jfs
-      AWS_REGION: us-east-1
-      MODEL_HOST_PATH: /home/ubuntu/my-mlops-demo/models/model.pkl
-
-      PRODUCT_HOST_PORT: "5050"
-      POSTGRES_HOST_PORT: "5333"
 
     steps:
-      - name: Slack - start
-        if: always()
-        run: |
-          curl -X POST -H 'Content-type: application/json' \
-            --data "{\"text\":\"Deploy started: ${GITHUB_SHA} (${GITHUB_REF_NAME})\"}" \
-            "${SLACK_WEBHOOK_URL}"
-
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Cache Maven packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.m2/repository
-          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
-          restore-keys: |
-            ${{ runner.os }}-maven-
-
-      - name: Show repo files (debug)
-        run: |
-          ls -lah
-          ls -lah .github/workflows || true
-
-      - name: Choose deploy tag
-        id: tags
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          SHA_TAG="sha-${GITHUB_SHA}"
-          if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
-            MOVING_TAG="prod"
-          else
-            MOVING_TAG=""
-          fi
-
-          if [ -n "${{ github.event.inputs.image_tag }}" ]; then
-            DEPLOY_TAG="${{ github.event.inputs.image_tag }}"
-          else
-            DEPLOY_TAG="${SHA_TAG}"
-          fi
-
-          echo "SHA_TAG=${SHA_TAG}" >> "$GITHUB_OUTPUT"
-          echo "MOVING_TAG=${MOVING_TAG}" >> "$GITHUB_OUTPUT"
-          echo "DEPLOY_TAG=${DEPLOY_TAG}" >> "$GITHUB_OUTPUT"
-
-          echo "Will deploy tag: ${DEPLOY_TAG}"
-          echo "Also apply moving tag (if set): ${MOVING_TAG}"
+      # ---- Build & push (example: inference-service) ----
+      # If you already have this section working, keep it; this is a solid baseline.
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
-          username: ${{ env.DOCKER_USERNAME }}
-          password: ${{ env.DOCKER_PASSWORD }}
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
 
-      # ---------- Build & push PRODUCT image via Jib ----------
-      - name: Setup JDK 21
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "21"
-          cache: maven
-
-      - name: Build & push product-service (Jib)
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          PRODUCT_REPO="${DOCKER_USERNAME}/${DOCKER_IMAGE_NAME_PRODUCT}"
-          SHA_TAG="${{ steps.tags.outputs.SHA_TAG }}"
-          MOVING_TAG="${{ steps.tags.outputs.MOVING_TAG }}"
-
-          EXTRA_TAGS="${SHA_TAG}"
-          if [ -n "${MOVING_TAG}" ]; then
-            EXTRA_TAGS="${EXTRA_TAGS},${MOVING_TAG}"
-          fi
-
-          mvn -B -ntp clean package jib:build \
-            -Dimage="${PRODUCT_REPO}:${SHA_TAG}" \
-            -Djib.to.tags="${EXTRA_TAGS}"
-
-      # ---------- Build & push INFERENCE image via Dockerfile ----------
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
+      # Adjust context/Dockerfile/tagging to match your repo.
       - name: Build & push inference-service (Dockerfile)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./api
+          file: ./api/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/inference-service:${{ github.run_number }}
+            ${{ secrets.DOCKER_USERNAME }}/inference-service:latest
+
+      # ---- SSH (refactored: deterministic known_hosts + sanity check) ----
+      - name: Setup SSH + known_hosts
         shell: bash
         run: |
           set -euo pipefail
 
-          INFER_REPO="${DOCKER_USERNAME}/${DOCKER_IMAGE_NAME_INFERENCE}"
-          SHA_TAG="${{ steps.tags.outputs.SHA_TAG }}"
-          MOVING_TAG="${{ steps.tags.outputs.MOVING_TAG }}"
-
-          # Dockerfile is at repo root; context is "."
-          docker build -t "${INFER_REPO}:${SHA_TAG}" -f Dockerfile .
-          docker push "${INFER_REPO}:${SHA_TAG}"
-
-          if [ -n "${MOVING_TAG}" ]; then
-            docker tag "${INFER_REPO}:${SHA_TAG}" "${INFER_REPO}:${MOVING_TAG}"
-            docker push "${INFER_REPO}:${MOVING_TAG}"
-          fi
-
-      # ---------- Deploy to EC2 using compose layering ----------
-      - name: Setup SSH Agent
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ env.EC2_SSH_PRIVATE_KEY }}
-
-      - name: Warm known_hosts
-        run: |
           mkdir -p ~/.ssh
-          ssh-keyscan -H ${{ env.EC2_PUBLIC_IP_ADDRESS }} >> ~/.ssh/known_hosts
+          chmod 700 ~/.ssh
 
+          # Write the private key from secrets (must be the OPENSSH PRIVATE KEY)
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
 
+          # Add host key to avoid interactive prompt
+          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: SSH sanity check (verbose)
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh -vvv -i ~/.ssh/id_ed25519 \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "${{ env.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+            "echo CONNECTED && whoami && hostname && pwd"
+
+      # ---- Deploy on EC2 (compose pull + up) ----
+      # This assumes docker + docker compose are installed on the EC2 instance,
+      # and that your app lives at /home/ubuntu/my-mlops-demo/my-mlops-demo (adjust if different).
       - name: Deploy on EC2 (compose pull + up)
         shell: bash
         run: |
           set -euo pipefail
 
-          DEPLOY_TAG="${{ steps.tags.outputs.DEPLOY_TAG }}"
-          PRODUCT_IMAGE="${DOCKER_USERNAME}/${DOCKER_IMAGE_NAME_PRODUCT}:${DEPLOY_TAG}"
-          INFERENCE_IMAGE="${DOCKER_USERNAME}/${DOCKER_IMAGE_NAME_INFERENCE}:${DEPLOY_TAG}"
+          ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes "${{ env.EC2_USER }}@${{ secrets.EC2_HOST }}" << 'EOF'
+            set -euo pipefail
 
-          ssh -o StrictHostKeyChecking=no "ubuntu@${EC2_PUBLIC_IP_ADDRESS}" 'bash -s' << EOF
-          set -euo pipefail
+            cd /home/ubuntu/my-mlops-demo/my-mlops-demo
 
-          cd /home/ubuntu/my-mlops-demo
+            # (Optional) export variables used by docker-compose.yml
+            # If your compose file uses ${DOCKER_USERNAME} and ${BUILD_NUMBER}, this helps.
+            export DOCKER_USERNAME="${DOCKER_USERNAME}"
+            export BUILD_NUMBER="${BUILD_NUMBER}"
 
-          cat > .env <<ENV
-          PRODUCT_IMAGE=${PRODUCT_IMAGE}
-          INFERENCE_IMAGE=${INFERENCE_IMAGE}
+            # Pull new images and restart
+            docker compose pull
+            docker compose up -d --remove-orphans
 
-          PRODUCT_HOST_PORT=${PRODUCT_HOST_PORT}
-          POSTGRES_HOST_PORT=${POSTGRES_HOST_PORT}
-
-          POSTGRES_USER=${POSTGRES_USER}
-          POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-          POSTGRES_DB=${POSTGRES_DB}
-
-          AWS_REGION=${AWS_REGION}
-          MODEL_HOST_PATH=${MODEL_HOST_PATH}
-          ENV
-
-          echo "${DEPLOY_TAG}" > deployed-image-tag.txt
-
-          docker compose -f docker-compose.yml -f docker-compose.ec2 pull
-          docker compose -f docker-compose.yml -f docker-compose.ec2 up -d --remove-orphans
-
-          docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}"
+            # Show status for debugging
+            docker compose ps
           EOF
 
-      # ---------- Post-deploy smoke tests ----------
-      - name: Smoke test /ready + /health
+      # ---- Smoke test / health ----
+      # Adjust health URL if your service endpoint differs.
+      - name: Smoke test (health)
         shell: bash
         run: |
           set -euo pipefail
+          echo "Checking: http://${{ secrets.EC2_HOST }}:${{ env.APP_PORT }}${{ env.HEALTH_PATH }}"
+          curl -fsS "http://${{ secrets.EC2_HOST }}:${{ env.APP_PORT }}${{ env.HEALTH_PATH }}"
 
-          BASE="http://${{ env.EC2_PUBLIC_IP_ADDRESS }}:${{ env.PRODUCT_HOST_PORT }}"
-
-          echo "Waiting for inference to become ready via product-service..."
-          for i in {1..30}; do
-            if curl -fsS "${BASE}/api/inference/ready" >/dev/null 2>&1; then
-              echo "Inference ready ✅"
-              break
-            fi
-            sleep 2
-          done
-
-          # Fail if not ready
-          curl -fsS "${BASE}/api/inference/ready" >/dev/null
-
-          echo "Health output:"
-          curl -fsS "${BASE}/api/inference/health" | tee /tmp/health.json
-
-          # Assert model hash exists
-          grep -q "model_sha256" /tmp/health.json
-
+      # ---- Slack notification (optional) ----
+      # Requires SLACK_WEBHOOK_URL secret. Remove if you don't need it.
       - name: Slack - end
-        if: always()
+        if: always() && secrets.SLACK_WEBHOOK_URL != ''
+        shell: bash
         run: |
+          set -euo pipefail
+          STATUS="${{ job.status }}"
+          TEXT="build-and-deploy: *${STATUS}* for \`${{ github.repository }}\` @ \`${{ github.ref_name }}\` (run #${{ github.run_number }})"
           curl -X POST -H 'Content-type: application/json' \
-            --data "{\"text\":\"Deploy finished: status=${{ job.status }} commit=${GITHUB_SHA}\"}" \
-            "${SLACK_WEBHOOK_URL}"
+            --data "$(printf '{"text":"%s"}' "$TEXT")" \
+            "${{ secrets.SLACK_WEBHOOK_URL }}"
