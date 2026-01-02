@@ -47,6 +47,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Cache Maven packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
       - name: Show repo files (debug)
         run: |
           ls -lah
@@ -90,6 +98,7 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
+          cache: maven
 
       - name: Build & push product-service (Jib)
         shell: bash
