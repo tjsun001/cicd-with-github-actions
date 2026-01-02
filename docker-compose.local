@@ -1,0 +1,17 @@
+services:
+  inference:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    image: ${INFERENCE_IMAGE:-local/inference:dev}
+
+  # Optional: if you also build product locally
+  # product-service:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   image: ${PRODUCT_IMAGE:-local/product:dev}
+
+  inference:
+    volumes:
+      - ${MODEL_HOST_PATH:-./models/model.pkl}:/tmp/model.pkl:ro
