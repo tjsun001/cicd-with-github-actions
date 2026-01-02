@@ -1,24 +1,37 @@
 services:
-  app:
-    image: ${APP_IMAGE}
   product-service:
-      container_name: product
+    container_name: product
+    image: ${DOCKER_IMAGE}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      SPRING_DATASOURCE_URL: "jdbc:postgresql://db:5432/jfs"
+      SPRING_DATASOURCE_USERNAME: ${PG_USER}
+      SPRING_DATASOURCE_PASSWORD: ${PG_PASSWORD}
+      INFERENCE_BASE_URL: "http://inference:8000"
+      # ONLY keep this if your app is configured to run on 5050 in-container
+      SERVER_PORT: "5050"
+    ports:
+      - "${HOST_PORT}:5050"
+    depends_on:
+      - db
+      - inference
+    networks:
+      - amigos
 
-      image: ${DOCKER_IMAGE}
-      build:
-        context: .
-        dockerfile: Dockerfile
-      environment:
-        SPRING_DATASOURCE_URL: "${DB_HOST}://db:${DB_PORT}/jfs"
-        SPRING_DATASOURCE_USERNAME: ${DB_USER}
-        SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD}
-      ports:
-        - "${HOST_PORT}:8080"
-      networks:
-        - amigos
+  inference:
+    container_name: inference
+    image: my-mlops-demo-inference
+    # or your built image name
+    expose:
+      - "8000"
+    networks:
+      - amigos
+
   db:
     container_name: jfs-postgres
-    image: postgres
+    image: postgres:15
     environment:
       POSTGRES_USER: ${PG_USER}
       POSTGRES_PASSWORD: ${PG_PASSWORD}
@@ -27,7 +40,7 @@ services:
       - "5333:5432"
     restart: unless-stopped
     volumes:
-      - db:/data/postgres
+      - db:/var/lib/postgresql/data
     networks:
       - amigos
 
