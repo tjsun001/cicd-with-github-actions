@@ -2,12 +2,11 @@ name: Deploy Workflow
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
     inputs:
-      build_number:
-        description: "the build number to deploy (optional)"
+      image_tag:
+        description: "Deploy a specific tag (e.g., sha-<commit> or prod). Leave empty to deploy sha-<this commit>."
         required: false
         type: string
 
@@ -17,135 +16,19 @@ jobs:
     env:
       DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
       DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
-      DOCKER_IMAGE_NAME: product-service
+
+      # Docker Hub repositories
+      DOCKER_IMAGE_NAME_PRODUCT: product-service
+      DOCKER_IMAGE_NAME_INFERENCE: inference-service
 
       EC2_SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
       EC2_PUBLIC_IP_ADDRESS: ${{ secrets.EC2_PUBLIC_IP_ADDRESS }}
 
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
-    steps:
-      # Send a Slack message for both push + workflow_dispatch
-      - name: Send Slack message with github commit url
-        if: always()
-        run: >
-          curl -X POST -H 'Content-type: application/json'
-          --data '{"text":"${{ github.event.head_commit.message || github.sha }} - https://${{ github.repository }}/commit/${{ github.sha }}"}'
-          ${{ env.SLACK_WEBHOOK_URL }}
-
-      # Only needed when we are building (no manual build_number)
-      - name: Checkout
-        if: ${{ github.event.inputs.build_number == '' }}
-        uses: actions/checkout@v4
-
-      - name: JDK
-        if: ${{ github.event.inputs.build_number == '' }}
-        uses: actions/setup-java@v4
-        with:
-          distribution: "temurin"
-          java-version: "21"
-
-      - name: Generate Build Number
-        id: buildnum
-        run: |
-          if [ -n "${{ github.event.inputs.build_number }}" ]; then
-            BUILD_NUMBER="${{ github.event.inputs.build_number }}"
-            echo "using provided build number: $BUILD_NUMBER"
-          else
-            BUILD_NUMBER="$(date +'%d%m%Y%H%M%S')"
-            echo "using generated build number: $BUILD_NUMBER"
-          fi
-          echo "BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
-
-      - name: Choose deploy tag (IMAGE_TAG)
-        run: |
-          # If a build_number is provided, deploy that exact immutable tag.
-          if [ -n "${{ github.event.inputs.build_number }}" ]; then
-            DEPLOY_TAG="${{ github.event.inputs.build_number }}"
-          else
-            # For pushes to main, deploy 'prod' (stable moving tag).
-            if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
-              DEPLOY_TAG="prod"
-            else
-              # Fallback: deploy the generated build number.
-              DEPLOY_TAG="${BUILD_NUMBER}"
-            fi
-          fi
-
-          echo "DEPLOY_TAG=$DEPLOY_TAG" >> "$GITHUB_ENV"
-          echo "Will deploy IMAGE_TAG=$DEPLOY_TAG"
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ env.DOCKER_USERNAME }}
-          password: ${{ env.DOCKER_PASSWORD }}
-
-      - name: Check if provided image exists
-        if: ${{ github.event.inputs.build_number != '' }}
-        run: |
-          IMAGE_NAME="${{ env.DOCKER_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:${{ github.event.inputs.build_number }}"
-          echo "checking if $IMAGE_NAME exists"
-          if ! docker manifest inspect "$IMAGE_NAME" > /dev/null 2>&1; then
-            echo "provided image $IMAGE_NAME does not exist. exiting ..."
-            exit 1
-          fi
-          echo "provided image $IMAGE_NAME exists. ✅"
-
-      - name: Maven Build + Push (BUILD_NUMBER + sha + optional prod)
-        if: ${{ github.event.inputs.build_number == '' }}
-        run: |
-          EXTRA_TAGS="sha-${GITHUB_SHA}"
-          if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
-            EXTRA_TAGS="${EXTRA_TAGS},prod"
-          fi
-
-          mvn -B -ntp clean package jib:build \
-            -Dimage=${DOCKER_USERNAME}/${DOCKER_IMAGE_NAME}:${BUILD_NUMBER} \
-            -Djib.to.tags=${EXTRA_TAGS}
-
-      - name: Setup SSH Agent
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
-
-      - name: SSH_TO_EC2_and_Deploy
-        run: |
-          ssh -o StrictHostKeyChecking=no $EC2_PUBLIC_IP_ADDRESS \
-          DOCKER_USERNAME="${DOCKER_USERNAME}" IMAGE_TAG="${DEPLOY_TAG}" 'bash -s' << 'EOF'
-          set -euo pipefail
-
-          # Ensure compose resolves tags deterministically
-          cd /home/ubuntu
-          cat > .env <<ENV
-              DOCKER_USERNAME=${DOCKER_USERNAME}
-              IMAGE_TAG=${IMAGE_TAG}
-              ENV
-
-          cd /home/ubuntu/my-mlops-demo
-
-          echo "${IMAGE_TAG}" > deployed-image-tag.txt
-
-          docker compose config | sed -n '/product-service:/,/^[^ ]/p'
-
-          docker compose pull product-service
-          docker compose rm -sf product-service
-          docker compose up -d --no-deps --force-recreate product-service
-
-          docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}"
-
-          # cleanup (demo-friendly)
-          docker image prune -af --filter "until=24h"
-          docker builder prune -af --filter "until=24h"
-
-          # disk visibility
-          df -h /
-          docker system df
-          EOF
-
-      - name: Send Slack message with status
-        if: always()
-        run: >
-          curl -X POST -H 'Content-type: application/json'
-          --data '{"text":"Job status ${{ job.status }} - https://${{ github.repository }}/commit/${{ github.sha }}"}'
-          ${{ env.SLACK_WEBHOOK_URL }}
+      # App defaults (you can move these to GitHub secrets if you prefer)
+      POSTGRES_USER: amigoscode
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: jfs
+      AWS_REGION: us-east-1
+      MODEL_HOST_PATH: /home/ubuntu/my-mlops-demo/models/model.pkl
