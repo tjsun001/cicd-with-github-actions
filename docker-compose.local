@@ -1,17 +1,33 @@
 services:
-  inference:
-    build:
-      context: ./api
-      dockerfile: Dockerfile
-    image: ${INFERENCE_IMAGE:-local/inference:dev}
-
-  # Optional: if you also build product locally
-  # product-service:
-  #   build:
-  #     context: .
-  #     dockerfile: Dockerfile
-  #   image: ${PRODUCT_IMAGE:-local/product:dev}
-
-  inference:
+  db:
+    image: postgres:15
+    container_name: mlops-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-products}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "${DB_HOST_PORT:-5333}:5432"
     volumes:
-      - ${MODEL_HOST_PATH:-./models/model.pkl}:/tmp/model.pkl:ro
+      - pgdata:/var/lib/postgresql/data
+
+  product-service:
+    container_name: product
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-products}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+
+      # IMPORTANT: point to inference (remote for now)
+      INFERENCE_BASE_URL: ${INFERENCE_BASE_URL:-http://44.206.28.191:5050}
+
+    depends_on:
+      - db
+    ports:
+      - "${PRODUCT_HOST_PORT:-5050}:5050"
+
+volumes:
+  pgdata:
