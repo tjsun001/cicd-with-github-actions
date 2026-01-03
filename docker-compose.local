@@ -22,7 +22,9 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
 
       # IMPORTANT: point to inference (remote for now)
-      INFERENCE_BASE_URL: ${INFERENCE_BASE_URL:-http://44.206.28.191:5050}
+     # INFERENCE_BASE_URL: ${INFERENCE_BASE_URL:-http://44.206.28.191:5050}
+      INFERENCE_BASE_URL: ${INFERENCE_BASE_URL}
+
 
     depends_on:
       - db

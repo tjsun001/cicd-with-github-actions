@@ -23,10 +23,17 @@ public class InferenceClient {
 
     public Object predict(int userId) {
         return restClient.post()
-                .uri("/predict")
+                .uri("/recommendations")
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(Map.of("user_id", userId))
                 .retrieve()
+                .onStatus(
+                        status -> status.is4xxClientError() || status.is5xxServerError(),
+                        (request, response) ->
+                                new RuntimeException(
+                                        "Inference call failed with status " + response.getStatusCode()
+                                )
+                )
                 .body(Object.class);
     }
 
@@ -34,6 +41,13 @@ public class InferenceClient {
         return restClient.get()
                 .uri("/health")
                 .retrieve()
+                .onStatus(
+                        status -> status.is4xxClientError() || status.is5xxServerError(),
+                        (request, response) ->
+                                new RuntimeException(
+                                        "Inference health check failed with status " + response.getStatusCode()
+                                )
+                )
                 .body(Object.class);
     }
 }

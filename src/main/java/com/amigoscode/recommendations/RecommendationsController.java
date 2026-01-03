@@ -39,7 +39,7 @@ public class RecommendationsController {
 
         try {
             ResponseEntity<Map<String, Object>> resp = restTemplate.exchange(
-                    inferenceBaseUrl + "/predict",
+                    inferenceBaseUrl + "/recommendations",
                     HttpMethod.POST,
                     entity,
                     new ParameterizedTypeReference<Map<String, Object>>() {}
