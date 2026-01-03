@@ -1,5 +1,14 @@
 End-to-End Recommendation System (MLOps Proof of Concept)
 
+Frontend
+↓
+Spring Boot (product-service)
+↓ REST
+Inference Service (FastAPI)
+↓
+Model (local / S3)
+
+
 This project demonstrates a production-style MLOps architecture focused on reliability, graceful degradation, and operational correctness, rather than model experimentation.
 
 The system integrates a frontend application, a backend API layer, and an ML inference service.
@@ -76,3 +85,27 @@ model uncertainty
 downstream service failures
 
 The focus is operational ML, not offline model accuracy.
+
+
+
+## Kill-Switch Demo (Inference Resilience)
+
+This service integrates with an external ML inference service for product recommendations.
+To demonstrate graceful degradation and service isolation, you can simulate an inference outage.
+
+### Normal operation (ML enabled)
+```bash
+curl http://localhost:5050/recommendations/1
+{
+  "user_id": 1,
+  "recommendations": [1,2,3,101,102],
+  "source": "ml"
+}
+docker stop inference
+curl http://localhost:5050/recommendations/1
+{
+  "user_id": 1,
+  "recommendations": [1,2,3,101,102],
+  "source": "fallback_popular"
+}
+docker start inference
