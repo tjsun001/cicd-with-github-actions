@@ -1,14 +1,18 @@
-EndntonEnd Recommendation System
+EndtoEnd Recommendation System
 
 ProductionnStyle MLOps Architecture (ECS • ALB • CloudWatch)
 A portfolio project demonstrating reliability, observability, and cloudnnative ML serving.
 
 System Architecture
 
-Frontend (Next.js) ® Spring Boot Backend ® Application Load Balancer ® FastAPI Inference
-Service (ECS) ® Model Artifacts (S3)
-The backend acts as the reliability boundary. Machine learning is optional; system correctness is
-not.
+Frontend (Next.js) 
+® Spring Boot Backend 
+® Application Load Balancer 
+® FastAPI InferenceService (ECS) 
+® Model Artifacts (S3)
+The backend acts as the reliability boundary. 
+Machine learning is optional; 
+system correctness is not.
 
 Reliability & Resilience
 • Graceful degradation with deterministic fallback when ML is unavailable
@@ -29,5 +33,5 @@ Production monitoring using ALB Target Group metrics:
 
 Why This Project Matters
 This project demonstrates how to operate machine learning systems as production services:
-faultntolerant, observable, and safely integrated behind stable APIs. It reflects realnworld MLOps
+faultntolerant, observable, and safely integrated behind stable APIs. It reflects realworld MLOps
 and platform engineering concerns rather than offline model accuracy alone.
