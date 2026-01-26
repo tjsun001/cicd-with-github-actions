@@ -111,8 +111,8 @@ jobs:
 
       - name: SSH_TO_EC2_and_Deploy
         run: |
-          echo "EC2 target is: $EC2_PUBLIC_IP_ADDRESS"
-          ssh -o StrictHostKeyChecking=no $EC2_PUBLIC_IP_ADDRESS \
+          echo "EC2 target is: " $EC2_PUBLIC_IP_ADDRESS
+          ssh -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_HOST} \
           DOCKER_USERNAME="${DOCKER_USERNAME}" IMAGE_TAG="${DEPLOY_TAG}" 'bash -s' << 'EOF'
           set -euo pipefail
 
