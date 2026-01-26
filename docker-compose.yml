@@ -18,7 +18,7 @@ services:
       - amigos
 
   # -----------------------------
-  # Kafka (Local) - Redpanda (Kafka API compatible)
+  # Kafka (Local) - Redpanda
   # -----------------------------
   kafka:
     image: redpandadata/redpanda:latest
@@ -47,7 +47,7 @@ services:
       - amigos
 
   # -----------------------------
-  # Inference service
+  # Inference service (FastAPI)
   # -----------------------------
   inference:
     container_name: inference
@@ -55,8 +55,10 @@ services:
     environment:
       AWS_REGION: ${AWS_REGION:-us-east-1}
       MODEL_PATH: /tmp/model.pkl
-      # If you mount a local model file, keep it simple:
-      # MODEL_HOST_PATH: ${MODEL_HOST_PATH:-./models/model.pkl}
+      MODEL_S3_URI: ${MODEL_S3_URI}
+#    volumes:
+#      # Mount local AWS credentials for dev (profiles, SSO, etc.)
+#      - ~/.aws:/root/.aws:ro
     expose:
       - "8000"
     healthcheck:
@@ -72,7 +74,7 @@ services:
   # -----------------------------
   # Product service (Spring Boot)
   # -----------------------------
-  product-service:
+  product:
     container_name: product
     build:
       context: .
@@ -84,21 +86,19 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
 
       INFERENCE_BASE_URL: http://inference:8000
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: ${SPRING_KAFKA_BOOTSTRAP_SERVERS}
 
       # Kafka bootstrap (local)
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       KAFKA_TOPIC_INFERENCE_EVENTS: inference.events.v1
     ports:
-      - "${PRODUCT_HOST_PORT:-5050}:8080"
+      - "${PRODUCT_HOST_PORT:-5050}:5050"
     depends_on:
       db:
         condition: service_started
       kafka:
         condition: service_started
-      # IMPORTANT: keep inference dependency OPTIONAL while we get Kafka working.
-      # If you want to require inference later, uncomment:
-      # inference:
-      #   condition: service_healthy
+      # inference can remain optional until health-gated later
     restart: unless-stopped
     networks:
       - amigos

@@ -1,0 +1,4 @@
+services:
+  inference:
+    volumes:
+      - ~/.aws:/root/.aws:ro

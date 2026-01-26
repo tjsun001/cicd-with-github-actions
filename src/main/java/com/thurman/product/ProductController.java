@@ -3,6 +3,7 @@ package com.thurman.product;
 import com.thurman.storage.S3StorageService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -12,6 +13,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 @RestController
 @RequestMapping("/api/v1/products")
@@ -26,13 +28,17 @@ public class ProductController {
     }
 
     @GetMapping
-    public List<ProductResponse> getAllProducts() {
-        return productService.getAllProducts();
+    public ResponseEntity<List<ProductResponse>> getAllProducts() {
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.maxAge(60, TimeUnit.SECONDS).cachePublic())
+                .body(productService.getAllProducts());
     }
 
     @GetMapping("{id}")
-    public ProductResponse getProductById(@PathVariable("id") UUID id) {
-        return productService.getProductById(id);
+    public ResponseEntity<ProductResponse> getProductById(@PathVariable("id") UUID id) {
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.maxAge(60, TimeUnit.SECONDS).cachePublic())
+                .body(productService.getProductById(id));
     }
 
     @DeleteMapping("{id}")
@@ -72,12 +78,15 @@ public class ProductController {
     @GetMapping("{id}/image")
     public ResponseEntity<byte[]> downloadProductImage(@PathVariable UUID id) {
         S3StorageService.StoredObject storedObject = productImageService.downloadProductImage(id);
-        
+
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.parseMediaType(storedObject.contentType()));
         headers.setContentLength(storedObject.bytes().length);
         headers.set(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"product-image\"");
-        
+
+        // Images are also safe to cache, but usually longer (adjust if you want)
+        headers.setCacheControl(CacheControl.maxAge(300, TimeUnit.SECONDS).cachePublic().getHeaderValue());
+
         return ResponseEntity.ok()
                 .headers(headers)
                 .body(storedObject.bytes());
