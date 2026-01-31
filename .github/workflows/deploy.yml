@@ -12,20 +12,15 @@ on:
         type: string
 
 jobs:
-  build-and-deploy:
+  build-and-push:
     runs-on: ubuntu-latest
     env:
       DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
       DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
       DOCKER_IMAGE_NAME: product-service
-
-      EC2_SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
-      EC2_PUBLIC_IP_ADDRESS: ${{ secrets.EC2_PUBLIC_IP_ADDRESS }}
-
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
     steps:
-      # Send a Slack message for both push + workflow_dispatch
       - name: Send Slack message with github commit url
         if: always()
         run: >
@@ -33,7 +28,6 @@ jobs:
           --data '{"text":"${{ github.event.head_commit.message || github.sha }} - https://${{ github.repository }}/commit/${{ github.sha }}"}'
           ${{ env.SLACK_WEBHOOK_URL }}
 
-      # Only needed when we are building (no manual build_number)
       - name: Checkout
         if: ${{ github.event.inputs.build_number == '' }}
         uses: actions/checkout@v4
@@ -59,19 +53,15 @@ jobs:
 
       - name: Choose deploy tag (IMAGE_TAG)
         run: |
-          # If a build_number is provided, deploy that exact immutable tag.
           if [ -n "${{ github.event.inputs.build_number }}" ]; then
             DEPLOY_TAG="${{ github.event.inputs.build_number }}"
           else
-            # For pushes to main, deploy 'prod' (stable moving tag).
             if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
               DEPLOY_TAG="prod"
             else
-              # Fallback: deploy the generated build number.
               DEPLOY_TAG="${BUILD_NUMBER}"
             fi
           fi
-
           echo "DEPLOY_TAG=$DEPLOY_TAG" >> "$GITHUB_ENV"
           echo "Will deploy IMAGE_TAG=$DEPLOY_TAG"
 
@@ -103,46 +93,6 @@ jobs:
           mvn -B -ntp clean package jib:build \
             -Dimage=${DOCKER_USERNAME}/${DOCKER_IMAGE_NAME}:${BUILD_NUMBER} \
             -Djib.to.tags=${EXTRA_TAGS}
-
-      - name: Setup SSH Agent
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
-
-      - name: SSH_TO_EC2_and_Deploy
-        run: |
-          echo "EC2 target is: ${EC2_PUBLIC_IP_ADDRESS}"
-          ssh -o StrictHostKeyChecking=no ubuntu@${EC2_PUBLIC_IP_ADDRESS} \
-          DOCKER_USERNAME="${DOCKER_USERNAME}" IMAGE_TAG="${DEPLOY_TAG}" 'bash -s' << 'EOF'
-          set -euo pipefail
-
-          # Ensure compose resolves tags deterministically
-          cd /home/ubuntu
-          cat > .env <<ENV
-              DOCKER_USERNAME=${DOCKER_USERNAME}
-              IMAGE_TAG=${IMAGE_TAG}
-              ENV
-
-          cd /home/ubuntu/my-mlops-demo
-
-          echo "${IMAGE_TAG}" > deployed-image-tag.txt
-
-          docker compose config | sed -n '/product-service:/,/^[^ ]/p'
-
-          docker compose pull product-service
-          docker compose rm -sf product-service
-          docker compose up -d --no-deps --force-recreate product-service
-
-          docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}"
-
-          # cleanup (demo-friendly)
-          docker image prune -af --filter "until=24h"
-          docker builder prune -af --filter "until=24h"
-
-          # disk visibility
-          df -h /
-          docker system df
-          EOF
 
       - name: Send Slack message with status
         if: always()
