@@ -40,6 +40,18 @@ jobs:
           echo "REF=$GITHUB_REF"
           echo "EVENT=$GITHUB_EVENT_NAME"
 
+      # ✅ Added step I want: safe OIDC/secret sanity check
+      - name: Debug OIDC inputs (safe)
+        run: |
+          echo "ROLE_SET=$([[ -n \"${{ secrets.AWS_ROLE_TO_ASSUME }}\" ]] && echo yes || echo no)"
+          echo "NOTE: If REF is not refs/heads/main, OIDC can fail due to trust policy restrictions."
+
+      # ✅ Extra safety: show what's in ecs/ so missing file is obvious
+      - name: List ecs folder (debug)
+        run: |
+          ls -la
+          ls -la ecs || true
+
       - name: Ensure task definition exists
         run: |
           test -f "${{ env.TASK_DEFINITION_FILE }}" || (echo "Missing ${{ env.TASK_DEFINITION_FILE }}" && exit 1)
