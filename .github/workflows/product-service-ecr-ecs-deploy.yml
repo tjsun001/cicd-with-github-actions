@@ -2,12 +2,11 @@ name: Build and Deploy product-service to ECS
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
   workflow_dispatch:
     inputs:
       image_tag:
-        description: Optional image tag to deploy
+        description: Optional existing image tag to deploy (skips build)
         required: false
         type: string
 
@@ -19,41 +18,45 @@ concurrency:
   group: product-service-ecs
   cancel-in-progress: true
 
+env:
+  AWS_REGION: us-east-1
+  ECR_REPO: product-service
+  ECS_CLUSTER: mlops-poc-dev-ecs-cluster
+  ECS_SERVICE: mlops-poc-dev-product-service
+  CONTAINER_NAME: product-service
+  TASK_DEFINITION_FILE: ecs/task-definition.json
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
 
-    env:
-      AWS_REGION: us-east-1
-      ECR_REPO: product-service
-      ECS_CLUSTER: mlops-poc-dev-ecs-cluster
-      ECS_SERVICE: mlops-poc-dev-product-service
-      CONTAINER_NAME: product-service
-      TASK_DEFINITION_FILE: ecs/task-definition.json
-
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-java@v4
+      - name: Debug run context
+        run: |
+          echo "SHA=$GITHUB_SHA"
+          echo "REF=$GITHUB_REF"
+          echo "EVENT=$GITHUB_EVENT_NAME"
+
+      - name: Ensure task definition exists
+        run: |
+          test -f "${{ env.TASK_DEFINITION_FILE }}" || (echo "Missing ${{ env.TASK_DEFINITION_FILE }}" && exit 1)
+
+      - name: Setup Java
+        if: ${{ github.event_name == 'push' || inputs.image_tag == '' }}
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "21"
           cache: maven
 
-      - name: Resolve image tag
-        run: |
-          if [ -n "${{ inputs.image_tag }}" ]; then
-            TAG="${{ inputs.image_tag }}"
-          else
-            TAG="$(date +'%Y%m%d%H%M%S')"
-          fi
-          echo "IMAGE_TAG=$TAG" >> "$GITHUB_ENV"
-
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          aws-region: us-east-1
+          aws-region: ${{ env.AWS_REGION }}
           role-session-name: gha-product-service
 
       - name: Verify AWS identity
@@ -63,12 +66,30 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
+      # If an image_tag is provided manually, deploy that existing image tag (no build).
+      - name: Set IMAGE_URI from input tag (skip build)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.image_tag != '' }}
+        run: |
+          ECR_REGISTRY="${{ steps.login-ecr.outputs.registry }}"
+          IMAGE_URI="$ECR_REGISTRY/${{ env.ECR_REPO }}:${{ inputs.image_tag }}"
+          echo "IMAGE_URI=$IMAGE_URI" >> "$GITHUB_ENV"
+          echo "Using existing image: $IMAGE_URI"
+
+      # Otherwise build a new image with a timestamp tag and push it.
+      - name: Resolve image tag
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.image_tag != '') }}
+        run: |
+          TAG="$(date +'%Y%m%d%H%M%S')"
+          echo "IMAGE_TAG=$TAG" >> "$GITHUB_ENV"
+
       - name: Build and push image to ECR
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.image_tag != '') }}
         run: |
           ECR_REGISTRY="${{ steps.login-ecr.outputs.registry }}"
           IMAGE_URI="$ECR_REGISTRY/${{ env.ECR_REPO }}:${{ env.IMAGE_TAG }}"
           mvn -B -ntp -DskipTests clean package jib:build -Dimage="$IMAGE_URI"
           echo "IMAGE_URI=$IMAGE_URI" >> "$GITHUB_ENV"
+          echo "Built and pushed: $IMAGE_URI"
 
       - name: Render ECS task definition
         id: render-td
