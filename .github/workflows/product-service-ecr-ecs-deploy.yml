@@ -1,12 +1,13 @@
-name: Build and Deploy product-service to ECS (ECR)
+name: Build and Deploy product-service to ECS
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       image_tag:
-        description: "Optional image tag to deploy (if omitted, a timestamp tag is built and deployed)"
+        description: Optional image tag to deploy
         required: false
         type: string
 
@@ -15,12 +16,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: product-service-ecs-main
+  group: product-service-ecs
   cancel-in-progress: true
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+
     env:
       AWS_REGION: us-east-1
       ECR_REPO: product-service
@@ -39,45 +41,36 @@ jobs:
           cache: maven
 
       - name: Resolve image tag
-        shell: bash
         run: |
-          set -euo pipefail
-          if [ -n "${{ inputs.image_tag || '' }}" ]; then
+          if [ -n "${{ inputs.image_tag }}" ]; then
             TAG="${{ inputs.image_tag }}"
           else
             TAG="$(date +'%Y%m%d%H%M%S')"
           fi
           echo "IMAGE_TAG=$TAG" >> "$GITHUB_ENV"
-          echo "IMAGE_TAG=$TAG"
 
-      - name: Configure AWS credentials (OIDC)
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          aws-region: ${{ env.AWS_REGION }}
-          role-session-name: gha-product-service-deploy
+          aws-region: us-east-1
+          role-session-name: gha-product-service
 
       - name: Verify AWS identity
-        shell: bash
-        run: |
-          set -euo pipefail
-          aws sts get-caller-identity
+        run: aws sts get-caller-identity
 
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build and push image to ECR (Jib)
-        shell: bash
+      - name: Build and push image to ECR
         run: |
-          set -euo pipefail
           ECR_REGISTRY="${{ steps.login-ecr.outputs.registry }}"
           IMAGE_URI="$ECR_REGISTRY/${{ env.ECR_REPO }}:${{ env.IMAGE_TAG }}"
           mvn -B -ntp -DskipTests clean package jib:build -Dimage="$IMAGE_URI"
           echo "IMAGE_URI=$IMAGE_URI" >> "$GITHUB_ENV"
-          echo "IMAGE_URI=$IMAGE_URI"
 
-      - name: Render task definition with new image
+      - name: Render ECS task definition
         id: render-td
         uses: aws-actions/amazon-ecs-render-task-definition@v1
         with:
@@ -85,7 +78,7 @@ jobs:
           container-name: ${{ env.CONTAINER_NAME }}
           image: ${{ env.IMAGE_URI }}
 
-      - name: Deploy to ECS service
+      - name: Deploy to ECS
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2
         with:
           task-definition: ${{ steps.render-td.outputs.task-definition }}
