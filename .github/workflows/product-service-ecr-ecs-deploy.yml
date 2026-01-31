@@ -40,14 +40,28 @@ jobs:
           echo "REF=$GITHUB_REF"
           echo "EVENT=$GITHUB_EVENT_NAME"
 
-      # ✅ Added step I want: safe OIDC/secret sanity check
+      # ✅ Safe debug step (no fragile bash conditional with masked secrets)
       - name: Debug OIDC inputs (safe)
+        env:
+          ROLE_ARN: ${{ secrets.AWS_ROLE_TO_ASSUME }}
         run: |
-          echo "ROLE_SET=$([[ -n \"${{ secrets.AWS_ROLE_TO_ASSUME }}\" ]] && echo yes || echo no)"
-          echo "NOTE: If REF is not refs/heads/main, OIDC can fail due to trust policy restrictions."
+          if [ -n "${ROLE_ARN:-}" ]; then
+            echo "ROLE_SET=yes"
+          else
+            echo "ROLE_SET=no"
+          fi
+          echo "NOTE: IAM trust policy is main-only in your setup; REF must be refs/heads/main."
 
-      # ✅ Extra safety: show what's in ecs/ so missing file is obvious
-      - name: List ecs folder (debug)
+      # ✅ Guardrail: fail fast if not running on main (matches your IAM trust policy)
+      - name: Assert running on main
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "This workflow must run on refs/heads/main due to IAM trust policy. Current: $GITHUB_REF"
+            exit 1
+          fi
+
+      # ✅ Debug: show repo + ecs folder contents (helps diagnose missing task definition)
+      - name: List repo + ecs folder
         run: |
           ls -la
           ls -la ecs || true
