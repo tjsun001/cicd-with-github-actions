@@ -2,8 +2,7 @@ name: Build and Deploy product-service to ECS (ECR)
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
     inputs:
       image_tag:
@@ -15,6 +14,10 @@ permissions:
   id-token: write
   contents: read
 
+concurrency:
+  group: product-service-ecs-main
+  cancel-in-progress: true
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
@@ -24,54 +27,65 @@ jobs:
       ECS_CLUSTER: mlops-poc-dev-ecs-cluster
       ECS_SERVICE: mlops-poc-dev-product-service
       CONTAINER_NAME: product-service
+      TASK_DEFINITION_FILE: ecs/task-definition.json
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Java
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "21"
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Verify AWS identity
-        run: aws sts get-caller-identity
-
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
+          cache: maven
 
       - name: Resolve image tag
+        shell: bash
         run: |
-          if [ -n "${{ inputs.image_tag }}" ]; then
+          set -euo pipefail
+          if [ -n "${{ inputs.image_tag || '' }}" ]; then
             TAG="${{ inputs.image_tag }}"
           else
             TAG="$(date +'%Y%m%d%H%M%S')"
           fi
           echo "IMAGE_TAG=$TAG" >> "$GITHUB_ENV"
+          echo "IMAGE_TAG=$TAG"
 
-      - name: Build and push image to ECR with Jib
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: gha-product-service-deploy
+
+      - name: Verify AWS identity
+        shell: bash
         run: |
+          set -euo pipefail
+          aws sts get-caller-identity
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push image to ECR (Jib)
+        shell: bash
+        run: |
+          set -euo pipefail
           ECR_REGISTRY="${{ steps.login-ecr.outputs.registry }}"
           IMAGE_URI="$ECR_REGISTRY/${{ env.ECR_REPO }}:${{ env.IMAGE_TAG }}"
           mvn -B -ntp -DskipTests clean package jib:build -Dimage="$IMAGE_URI"
+          echo "IMAGE_URI=$IMAGE_URI" >> "$GITHUB_ENV"
+          echo "IMAGE_URI=$IMAGE_URI"
 
-      - name: Render ECS task definition with new image
+      - name: Render task definition with new image
         id: render-td
         uses: aws-actions/amazon-ecs-render-task-definition@v1
         with:
-          task-definition: ecs/task-definition.json
+          task-definition: ${{ env.TASK_DEFINITION_FILE }}
           container-name: ${{ env.CONTAINER_NAME }}
-          image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPO }}:${{ env.IMAGE_TAG }}
+          image: ${{ env.IMAGE_URI }}
 
-      - name: Deploy ECS task definition
+      - name: Deploy to ECS service
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2
         with:
           task-definition: ${{ steps.render-td.outputs.task-definition }}
